@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Eighth P Consultants — Real-Time Tier-2 Market Expansion Web App (v2.0)
+Eighth P Consultants — Real-Time Tier-2 Market Expansion Web App (v2.1)
 -----------------------------------------------------------------------
 Deploy on Streamlit Community Cloud (zero terminal) or run locally:
     pip install streamlit google-genai openpyxl
@@ -47,6 +47,41 @@ def _get_saved_api_key() -> str:
     return os.environ.get("GEMINI_API_KEY", "").strip()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _list_available_models(api_key: str) -> list[str]:
+    """Fetch live generateContent-capable Gemini models for the user's API key."""
+    fallback = [
+        "gemini-4-hydrogen",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-4-neon",
+    ]
+    if not api_key:
+        return fallback
+    try:
+        client = genai.Client(api_key=api_key)
+        preferred = []
+        others = []
+        for m in client.models.list():
+            name = getattr(m, "name", "") or ""
+            short = name.replace("models/", "")
+            methods = getattr(m, "supported_actions", None) or getattr(m, "supported_generation_methods", None) or []
+            if "gemini" not in short.lower():
+                continue
+            if any(x in short.lower() for x in ("tts", "image", "audio", "live", "embedding", "robotics", "computer-use")):
+                continue
+            if methods and not any("generatecontent" in str(act).lower() for act in methods):
+                continue
+            if any(k in short.lower() for k in ("4-hydrogen", "3.8-flash", "3.5-flash-lite", "4-neon", "4-argon")):
+                preferred.append(short)
+            else:
+                others.append(short)
+        combined = list(dict.fromkeys(preferred + others))
+        return combined if combined else fallback
+    except Exception:
+        return fallback
+
+
 # ---------------------------------------------------------------------------
 # Sidebar Configuration
 # ---------------------------------------------------------------------------
@@ -66,11 +101,12 @@ with st.sidebar:
             help="Save GEMINI_API_KEY in Streamlit App Settings -> Secrets to never enter it again.",
         ).strip()
 
+    available_models = _list_available_models(api_key)
     model_name = st.selectbox(
         "Gemini Model",
-        options=["gemini-2.5-flash", "gemini-2.5-pro"],
+        options=available_models,
         index=0,
-        help="gemini-2.5-flash is fast and cost-effective for 20-60+ cities; 2.5-pro offers deeper synthesis.",
+        help="Auto-populated from your API key's active Gemini models (gemini-4-hydrogen / gemini-3.8-flash recommended).",
     )
     workers = st.slider("Parallel Research Workers", min_value=1, max_value=8, value=4)
     resume_mode = st.checkbox(
@@ -160,7 +196,7 @@ if run_btn:
         log_area.code("\n".join(logs[-12:]))
 
     if pending:
-        status_box.info(f"Fetching fresh live data for {len(pending)} cities via Google Search...")
+        status_box.info(f"Fetching fresh live data for {len(pending)} cities via Google Search ({model_name})...")
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             future_map = {
                 pool.submit(research_city, client, city, model_name): city
@@ -185,7 +221,7 @@ if run_btn:
 
     ordered_records = [cache[c] for c in cities if c in cache]
     if not ordered_records:
-        status_box.error("No cities succeeded. Check your API key or network connection.")
+        status_box.error("No cities succeeded. Check your API key, selected model, or network connection.")
         st.stop()
 
     status_box.info("Building new 15-sheet Excel workbook with dynamic formulas & 90-day entry plan...")
@@ -204,7 +240,6 @@ if run_btn:
         populate_workbook(tpl_path, out_path, ordered_records)
         xlsx_bytes = out_path.read_bytes()
 
-        # Read generated Sheet 15 for in-app 90-Day Plan display
         wb_out = openpyxl.load_workbook(out_path, data_only=False)
         ws15 = wb_out["15_Entry_Plan_90D"]
         plan_rows = []
@@ -233,7 +268,6 @@ if run_btn:
         type="primary",
     )
 
-    # Executive Decision View (3 Tabs)
     ranked = sorted([score_city_record(rec) for rec in ordered_records], key=lambda x: x["score"], reverse=True)
     tab_rec, tab_plan, tab_sources = st.tabs([
         "Management Recommendation & Ranking",
@@ -244,7 +278,6 @@ if run_btn:
     with tab_rec:
         top5 = [c["city_name"] for c in ranked[:5]]
         next5 = [c["city_name"] for c in ranked[5:10]]
-        defer = [c["city_name"] for c in ranked[10:]]
         m1, m2, m3 = st.columns(3)
         m1.metric("Priority 1 (Enter)", ", ".join(top5[:3]) + (f" +{len(top5)-3}" if len(top5) > 3 else ""))
         m2.metric("Priority 2 (Monitor)", ", ".join(next5[:3]) if next5 else "None")
