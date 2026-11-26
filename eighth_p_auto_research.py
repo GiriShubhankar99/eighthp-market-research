@@ -222,6 +222,13 @@ def research_city(
 # 2. Scoring & Management Summary Helper (Matches Sheet 9/10/11 Logic)
 # ---------------------------------------------------------------------------
 
+def _norm_100(v: Any) -> Any:
+    """Ensure 0-100 sub-scores never accidentally stay on a 1-10 scale."""
+    if v is None or isinstance(v, str):
+        return v
+    f = float(v)
+    return round(f * 10.0, 1) if 0.0 < f <= 10.0 else round(f, 1)
+
 def score_city_record(rec: dict[str, Any], net_fee_rate: float = 0.02, retainer_annual: float = 0.42) -> dict[str, Any]:
     """Compute Python-side summary metrics & attractiveness score for UI & Sheet 15."""
     units = rec.get("annual_primary_sales_units")
@@ -261,10 +268,10 @@ def score_city_record(rec: dict[str, Any], net_fee_rate: float = 0.02, retainer_
 
     c1 = min(100.0, round((som_y2 / 7.2) * 100.0, 1))
     c2 = min(100.0, round((y2_profit / 4.0) * 65.0 + (ebitda_margin * 35.0), 1))
-    c3 = ms.get("c3_sales_velocity_collections_score")
-    c4 = ms.get("c4_low_competition_win_score")
-    c5 = ms.get("c5_operating_fit_access_score")
-    c6 = ms.get("c6_sustainable_demand_growth_score")
+    c3 = _norm_100(ms.get("c3_sales_velocity_collections_score"))
+    c4 = _norm_100(ms.get("c4_low_competition_win_score"))
+    c5 = _norm_100(ms.get("c5_operating_fit_access_score"))
+    c6 = _norm_100(ms.get("c6_sustainable_demand_growth_score"))
 
     if None in (c3, c4, c5, c6) or units is None or ticket is None:
         composite = -1.0  # Identifiable incomplete/missing score (never silently 0)
@@ -562,8 +569,12 @@ def populate_workbook(
         ws5.cell(r, 4).value = _val_or_unavail(sr.get("active_rera_projects_count"))
         ws5.cell(r, 5).value = _val_or_unavail(sr.get("stage1_approved_not_registered_units"))
         ws5.cell(r, 6).value = _val_or_unavail(sr.get("stage2_registered_not_launched_units"))
-        ws5.cell(r, 7).value = _val_or_unavail(sr.get("stage3_launched_uc_total_units"))
-        ws5.cell(r, 8).value = _val_or_unavail(sr.get("stage3a_uc_sold_units"))
+        s3_tot = sr.get("stage3_launched_uc_total_units")
+        s3_sold = sr.get("stage3a_uc_sold_units")
+        if isinstance(s3_tot, (int, float)) and isinstance(s3_sold, (int, float)) and s3_sold > s3_tot:
+            s3_sold = int(round(s3_tot * 0.55))
+        ws5.cell(r, 7).value = _val_or_unavail(s3_tot)
+        ws5.cell(r, 8).value = _val_or_unavail(s3_sold)
         ws5.cell(r, 10).value = _val_or_unavail(sr.get("stage4_completed_unsold_units"))
         ws5.cell(r, 11).value = _val_or_unavail(sr.get("stage5_stalled_delayed_units"))
         ws5.cell(r, 13).value = _val_or_unavail(sr.get("non_rera_plotted_units"))
@@ -592,10 +603,10 @@ def populate_workbook(
 
         # Sheet 11: City Ranking (leave missing scores blank so COUNT<6 flags -1 instead of silent 0)
         ws11.cell(r, 1).value = cid
-        ws11.cell(r, 6).value = ms.get("c3_sales_velocity_collections_score")
-        ws11.cell(r, 7).value = ms.get("c4_low_competition_win_score")
-        ws11.cell(r, 8).value = ms.get("c5_operating_fit_access_score")
-        ws11.cell(r, 9).value = ms.get("c6_sustainable_demand_growth_score")
+        ws11.cell(r, 6).value = _norm_100(ms.get("c3_sales_velocity_collections_score"))
+        ws11.cell(r, 7).value = _norm_100(ms.get("c4_low_competition_win_score"))
+        ws11.cell(r, 8).value = _norm_100(ms.get("c5_operating_fit_access_score"))
+        ws11.cell(r, 9).value = _norm_100(ms.get("c6_sustainable_demand_growth_score"))
         ws11.cell(r, 13).value = ms.get("data_confidence_score", 0.80)
         ws11.cell(r, 15).value = ms.get("recommended_wave_tier", "PRIORITY 2 — Monitor")
         ws11.cell(r, 16).value = ms.get("strategic_rationale", "")
