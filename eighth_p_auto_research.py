@@ -222,6 +222,22 @@ def research_city(
 # 2. Scoring & Management Summary Helper (Matches Sheet 9/10/11 Logic)
 # ---------------------------------------------------------------------------
 
+def _norm_pct(v: Any) -> Any:
+    """Convert whole-number percentages like 63 or 16.5 into decimals (0.63, 0.165)."""
+    if v is None or isinstance(v, str):
+        return v
+    f = float(v)
+    return round(f / 100.0, 4) if abs(f) > 1.5 else f
+
+
+def _norm_10(v: Any) -> Any:
+    """Ensure 1-10 scores stay on a 1-10 scale even if AI returns 0-100."""
+    if v is None or isinstance(v, str):
+        return v
+    f = float(v)
+    return round(f / 10.0, 1) if f > 10.0 else round(f, 1)
+
+
 def _norm_100(v: Any) -> Any:
     """Ensure 0-100 sub-scores never accidentally stay on a 1-10 scale."""
     if v is None or isinstance(v, str):
@@ -323,9 +339,9 @@ def _copy_row_style(ws: openpyxl.worksheet.worksheet.Worksheet, src_row: int, ds
 
 
 def _resize_range_bounds(formula: str, last_data_row: int) -> str:
-    """Update template range bounds like $K$5:$K$19 or B5:B34 to end at last_data_row."""
+    """Update vertical template ranges ending in 19 or 34 (e.g. $K$5:$K$19) without touching horizontal row-5 ranges like D5:I5."""
     return re.sub(
-        r"(\$?[A-Z]+\$?5:\$?[A-Z]+\$?)\d+",
+        r"(\$?[A-Z]+\$?5:\$?[A-Z]+\$?)(?:19|34)\b",
         lambda m: f"{m.group(1)}{last_data_row}",
         formula,
     )
@@ -547,7 +563,7 @@ def populate_workbook(
         ws3.cell(r, 9).value = _val_or_unavail(rec.get("ua_population_mn"))
         ws3.cell(r, 10).value = _val_or_unavail(rec.get("annual_primary_sales_units"))
         ws3.cell(r, 11).value = _val_or_unavail(rec.get("avg_ticket_size_cr"))
-        ws3.cell(r, 13).value = _val_or_unavail(rec.get("five_yr_price_growth_pct"))
+        ws3.cell(r, 13).value = _val_or_unavail(_norm_pct(rec.get("five_yr_price_growth_pct")))
         ws3.cell(r, 14).value = rec.get("coverage_status", "ESTIMATED")
 
         # Sheet 4: Demand & Finance
@@ -555,13 +571,13 @@ def populate_workbook(
         ws4.cell(r, 3).value = df.get("slbc_district_coverage", "UNAVAILABLE")
         ws4.cell(r, 4).value = _val_or_unavail(df.get("est_annual_sanctions_loans"))
         ws4.cell(r, 5).value = _val_or_unavail(df.get("gross_sanctioned_value_cr"))
-        ws4.cell(r, 7).value = _val_or_unavail(df.get("avg_ltv_ratio"))
-        ws4.cell(r, 8).value = _val_or_unavail(df.get("sanction_to_1st_disb_conversion"))
-        ws4.cell(r, 10).value = _val_or_unavail(df.get("primary_developer_purchase_share"))
+        ws4.cell(r, 7).value = _val_or_unavail(_norm_pct(df.get("avg_ltv_ratio")))
+        ws4.cell(r, 8).value = _val_or_unavail(_norm_pct(df.get("sanction_to_1st_disb_conversion")))
+        ws4.cell(r, 10).value = _val_or_unavail(_norm_pct(df.get("primary_developer_purchase_share")))
         ws4.cell(r, 12).value = _val_or_unavail(df.get("total_annual_disb_value_cr"))
-        ws4.cell(r, 13).value = _val_or_unavail(df.get("first_disb_share_of_total_disb"))
-        ws4.cell(r, 14).value = _val_or_unavail(df.get("mortgage_share_of_primary_sales"))
-        ws4.cell(r, 17).value = _val_or_unavail(df.get("home_loan_36m_yoy_cagr"))
+        ws4.cell(r, 13).value = _val_or_unavail(_norm_pct(df.get("first_disb_share_of_total_disb")))
+        ws4.cell(r, 14).value = _val_or_unavail(_norm_pct(df.get("mortgage_share_of_primary_sales")))
+        ws4.cell(r, 17).value = _val_or_unavail(_norm_pct(df.get("home_loan_36m_yoy_cagr")))
 
         # Sheet 5: Supply & RERA
         ws5.cell(r, 1).value = cid
@@ -582,18 +598,18 @@ def populate_workbook(
 
         # Sheet 6: Demand-Supply Balance
         ws6.cell(r, 1).value = cid
-        ws6.cell(r, 3).value = _val_or_unavail(ds.get("opening_unsold_inventory_units"))
+        # Col 3 is formula =F5-D5+E5 in client template — preserve it!
         ws6.cell(r, 4).value = _val_or_unavail(ds.get("annual_new_launches_units"))
         ws6.cell(r, 14).value = _val_or_unavail(ds.get("scheduled_completions_24m_units"))
-        ws6.cell(r, 15).value = _val_or_unavail(ds.get("mandate_need_velocity_score"))
+        ws6.cell(r, 15).value = _val_or_unavail(_norm_10(ds.get("mandate_need_velocity_score")))
         ws6.cell(r, 16).value = ds.get("undersupplied_sweet_spot_segment", "UNAVAILABLE")
         ws6.cell(r, 17).value = ds.get("mandate_opportunity_assessment", "UNAVAILABLE")
 
         # Sheet 9: TAM/SAM/SOM
         ws9.cell(r, 1).value = cid
-        ws9.cell(r, 6).value = ms.get("eligible_target_segment_share", 0.55)
-        ws9.cell(r, 7).value = ms.get("developer_outsourcing_propensity", 0.25)
-        ws9.cell(r, 12).value = ms.get("eighth_p_win_share_of_sam", 0.15)
+        ws9.cell(r, 6).value = _norm_pct(ms.get("eligible_target_segment_share", 0.55))
+        ws9.cell(r, 7).value = _norm_pct(ms.get("developer_outsourcing_propensity", 0.25))
+        ws9.cell(r, 12).value = _norm_pct(ms.get("eighth_p_win_share_of_sam", 0.15))
 
         # Sheet 10: Entry Economics
         ws10.cell(r, 1).value = cid
@@ -607,7 +623,7 @@ def populate_workbook(
         ws11.cell(r, 7).value = _norm_100(ms.get("c4_low_competition_win_score"))
         ws11.cell(r, 8).value = _norm_100(ms.get("c5_operating_fit_access_score"))
         ws11.cell(r, 9).value = _norm_100(ms.get("c6_sustainable_demand_growth_score"))
-        ws11.cell(r, 13).value = ms.get("data_confidence_score", 0.80)
+        ws11.cell(r, 13).value = _norm_pct(ms.get("data_confidence_score", 0.80))
         ws11.cell(r, 15).value = ms.get("recommended_wave_tier", "PRIORITY 2 — Monitor")
         ws11.cell(r, 16).value = ms.get("strategic_rationale", "")
 
@@ -648,8 +664,8 @@ def populate_workbook(
         ws8.cell(r, 10).value = d.get("internal_capability_gaps", "")
         ws8.cell(r, 11).value = d.get("recommended_engagement_model", "")
         ws8.cell(r, 12).value = d.get("acquisition_difficulty", "MEDIUM")
-        ws8.cell(r, 13).value = _val_or_unavail(d.get("outsourcing_probability"))
-        ws8.cell(r, 14).value = _val_or_unavail(d.get("win_probability"))
+        ws8.cell(r, 13).value = _val_or_unavail(_norm_pct(d.get("outsourcing_probability")))
+        ws8.cell(r, 14).value = _val_or_unavail(_norm_pct(d.get("win_probability")))
 
     # Sheet 13: Source Register + Explicit Data-Gap Documentation
     ws13 = wb["13_Source_Register"]
